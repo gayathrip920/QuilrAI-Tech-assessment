@@ -177,3 +177,40 @@ async def test_downstream_down_gives_clean_error():
     assert r.status_code == 502
     assert r.json() == {"jsonrpc": "2.0", "id": 9, "error": {"code": -32603, "message": "Downstream MCP server unavailable"}}
     assert "10.0.0.5" not in r.text
+
+
+# ---------- streaming (SSE) passthrough ----------
+
+async def test_sse_response_is_streamed_through_unchanged():
+    from fastapi import FastAPI
+    from fastapi.responses import StreamingResponse
+
+    events = [
+        b'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progress":1}}\n\n',
+        b'event: message\ndata: {"jsonrpc":"2.0","id":3,"result":{"content":[],"isError":false}}\n\n',
+    ]
+    sse_app = FastAPI()
+
+    @sse_app.post("/mcp")
+    async def mcp():
+        async def gen():
+            for e in events:
+                yield e
+        return StreamingResponse(gen(), media_type="text/event-stream", headers={"Mcp-Session-Id": "s-9"})
+
+    app = create_app(downstream_url="http://mock/mcp", secret=SECRET, transport=httpx.ASGITransport(app=sse_app))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
+        r = await c.post("/mcp", json=call("get_weather", 3),
+                         headers={**auth("viewer"), "Accept": "application/json, text/event-stream"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert r.headers["mcp-session-id"] == "s-9"
+    assert r.content == b"".join(events)
+
+
+async def test_downstream_http_error_status_is_passed_through(mock):
+    # A JSON-RPC error from the server (HTTP 200 with an error body) reaches the client as is.
+    app = create_app(downstream_url="http://mock/mcp", secret=SECRET, transport=httpx.ASGITransport(app=mock))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
+        r = await c.post("/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}, headers=auth("viewer"))
+    assert r.json() == {"jsonrpc": "2.0", "id": 4, "error": {"code": -32601, "message": "Method not found"}}

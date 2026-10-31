@@ -139,3 +139,45 @@ async def test_unexpected_crash_is_sanitized(make_gateway, monkeypatch):
     assert_clean_error(r, 500, "internal_error")
     assert "hunter2" not in r.text
     assert await app.state.limiter.used("a") == 0
+
+
+async def test_both_rate_limited_gives_sanitized_503(make_gateway, providers):
+    for p in providers:
+        p.state.behavior = "429"
+    app, c = await make_gateway()
+    r = await c.post("/v1/chat/completions", json=MSG, headers=auth())
+    assert_clean_error(r, 503, "upstream_unavailable")
+
+
+async def test_backup_timeout_is_also_handled(providers):
+    import httpx
+
+    from task4_router.router import AllProvidersFailed, FallbackRouter, Provider
+    from task4_router.tests.conftest import HostRouter
+
+    primary, backup = providers
+    primary.state.behavior = "slow"
+    backup.state.behavior = "slow"
+    async with httpx.AsyncClient(transport=HostRouter({"primary": primary, "backup": backup})) as client:
+        router = FallbackRouter(Provider("primary", "http://primary/v1/chat/completions"),
+                                Provider("backup", "http://backup/v1/chat/completions"),
+                                client, primary_timeout_s=0.2, backup_timeout_s=0.2)
+        start = time.perf_counter()
+        with pytest.raises(AllProvidersFailed) as e:
+            await router.route(MSG)
+    assert e.value.reason == "timeout"
+    assert time.perf_counter() - start < 1.0
+    assert primary.state.cancelled == 1 and backup.state.cancelled == 1
+
+
+async def test_concurrent_requests_through_the_gateway_respect_the_limit(make_gateway, providers):
+    import asyncio
+
+    app, c = await make_gateway(tenants={"key-a": {"tenant": "a", "tokens_per_minute": 300}})
+    # 30 requests at once against a 300-token budget. Whatever the timing, the
+    # tokens recorded in the window must never go over the limit.
+    results = await asyncio.gather(*[c.post("/v1/chat/completions", json=MSG, headers=auth()) for _ in range(30)])
+    codes = [r.status_code for r in results]
+    assert set(codes) <= {200, 429}
+    assert 1 <= codes.count(200) <= 30
+    assert await app.state.limiter.used("a") <= 300
