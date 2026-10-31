@@ -6,3 +6,15 @@ __pycache__/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Agent / assistant files (kept local, not part of the submission)
+.claude/
+CLAUDE.md
+AGENTS.md
+.cursor/
+.cursorrules
+.aider*
+.copilot/
+.github/copilot-instructions.md
+PREP_NOTES.md
+*.agent.md
