@@ -58,19 +58,19 @@ def test_full_session(proc):
 
     _send(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     tools = {t["name"]: t for t in _recv(proc)["result"]["tools"]}
-    assert set(tools) == {"lookup_customer", "issue_refund"}
-    assert tools["issue_refund"]["inputSchema"]["additionalProperties"] is False
+    assert set(tools) == {"get_customer_record", "trigger_refund"}
+    assert tools["trigger_refund"]["inputSchema"]["additionalProperties"] is False
 
-    ok = _call(proc, 3, "lookup_customer", {"customer_id": "CUST-000001"})
+    ok = _call(proc, 3, "get_customer_record", {"customer_id": "CUST-00001"})
     assert ok["result"]["isError"] is False
 
-    bad = _call(proc, 4, "issue_refund", {"customer_id": "CUST-000001", "amount": -5, "reason": "too short"})
+    bad = _call(proc, 4, "trigger_refund", {"customer_id": "CUST-00001", "amount": -5, "reason": "too short"})
     assert bad["error"]["code"] == -32602
 
     unknown = _call(proc, 5, "nope", {})
     assert unknown["error"]["code"] == -32602
 
-    refund = _call(proc, 6, "issue_refund", {"customer_id": "CUST-000002", "amount": 12.5, "reason": "Late delivery refund"})
+    refund = _call(proc, 6, "trigger_refund", {"customer_id": "CUST-00002", "amount": 12.5, "reason": "Late delivery refund"})
     assert refund["result"]["isError"] is False
 
     proc.stdin.close()

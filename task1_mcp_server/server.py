@@ -20,7 +20,7 @@ from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 from pydantic import ValidationError
 
-from .models import IssueRefundInput, LookupCustomerInput
+from .models import GetCustomerRecordInput, TriggerRefundInput
 
 # Logging is configured before anything else so no handler can default to stdout.
 logging.basicConfig(
@@ -34,13 +34,13 @@ INVALID_PARAMS = -32602
 
 # In-memory mock data.
 CUSTOMERS = {
-    "CUST-000001": {"customer_id": "CUST-000001", "name": "Ada Lovelace", "tier": "gold", "balance": 120.50},
-    "CUST-000002": {"customer_id": "CUST-000002", "name": "Alan Turing", "tier": "silver", "balance": 0.00},
+    "CUST-00001": {"customer_id": "CUST-00001", "name": "Ada Lovelace", "tier": "gold", "balance": 120.50},
+    "CUST-00002": {"customer_id": "CUST-00002", "name": "Alan Turing", "tier": "silver", "balance": 0.00},
 }
 
 TOOLS = {
-    "lookup_customer": (LookupCustomerInput, "Look up a customer by ID."),
-    "issue_refund": (IssueRefundInput, "Issue a refund to a customer."),
+    "get_customer_record": (GetCustomerRecordInput, "Get a customer record by ID (CUST-XXXXX)."),
+    "trigger_refund": (TriggerRefundInput, "Trigger a refund for a customer."),
 }
 
 
@@ -56,14 +56,14 @@ def _text_result(payload: dict, is_error: bool = False) -> types.CallToolResult:
     )
 
 
-def lookup_customer(args: LookupCustomerInput) -> types.CallToolResult:
+def get_customer_record(args: GetCustomerRecordInput) -> types.CallToolResult:
     customer = CUSTOMERS.get(args.customer_id)
     if customer is None:
         return _text_result({"error": "customer_not_found", "customer_id": args.customer_id}, is_error=True)
     return _text_result(customer)
 
 
-def issue_refund(args: IssueRefundInput) -> types.CallToolResult:
+def trigger_refund(args: TriggerRefundInput) -> types.CallToolResult:
     if args.customer_id not in CUSTOMERS:
         return _text_result({"error": "customer_not_found", "customer_id": args.customer_id}, is_error=True)
     refund = {
@@ -77,7 +77,7 @@ def issue_refund(args: IssueRefundInput) -> types.CallToolResult:
     return _text_result(refund)
 
 
-HANDLERS = {"lookup_customer": lookup_customer, "issue_refund": issue_refund}
+HANDLERS = {"get_customer_record": get_customer_record, "trigger_refund": trigger_refund}
 
 
 async def handle_list_tools(ctx, params) -> types.ListToolsResult:
