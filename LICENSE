@@ -1,0 +1,45 @@
+Evaluation-Only License
+
+Copyright (c) 2026 Gayathri Palakodety. All rights reserved.
+
+This repository (the "Software") was written by Gayathri Palakodety
+(the "Author") solely as a response to a technical assessment requested by
+QuilrAI (Quilr Inc.) as part of a hiring process.
+
+1. Permitted use. QuilrAI and its employees directly involved in evaluating
+   the Author's candidacy may view, download, clone, compile and run the
+   Software, and run its tests, for the sole purpose of evaluating the
+   Author's technical skills for employment (the "Purpose").
+
+2. Restrictions. Except as expressly permitted in Section 1, no right or
+   license is granted. Without limitation, no one may, in whole or in part:
+   (a) use the Software in production, in any product or service, or for any
+       internal business purpose other than the Purpose;
+   (b) copy, modify, merge, adapt, translate or create derivative works of the
+       Software, except temporary local changes needed to run it for the
+       Purpose;
+   (c) publish, distribute, sublicense, sell or otherwise make the Software
+       available to any third party;
+   (d) use the Software, or any part of it, to train, fine-tune or evaluate
+       any machine learning or AI model, or include it in any dataset.
+
+3. Term. The permission in Section 1 ends automatically on the earlier of
+   (a) the date QuilrAI completes its hiring decision for the role, or
+   (b) ninety (90) days after the Software was first shared with QuilrAI.
+   After that, all copies must be deleted, except copies kept only in
+   routine backups or applicant records as required by law.
+
+4. Ownership. The Author keeps all right, title and interest in the
+   Software. Viewing or running the Software does not transfer any ownership
+   or implied license. Any other use requires a separate written agreement
+   with the Author (for example, an employment or consulting agreement).
+
+5. Other viewers. Anyone other than QuilrAI may view this repository on
+   GitHub as allowed by GitHub's Terms of Service, but receives no other
+   rights under this License.
+
+6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+Contact the Author for any other use: pgayathri920@gmail.com
