@@ -10,7 +10,7 @@ TOOLS = [
     {"name": "get_weather", "description": "Weather for a city", "inputSchema": {"type": "object"}},
     {"name": "search_docs", "description": "Search docs", "inputSchema": {"type": "object"}},
     {"name": "admin_delete_user", "description": "Delete a user", "inputSchema": {"type": "object"}},
-    {"name": "admin_rotate_keys", "description": "Rotate API keys", "inputSchema": {"type": "object"}},
+    {"name": "admin_reset_key", "description": "Reset an API key", "inputSchema": {"type": "object"}},
 ]
 
 

@@ -8,7 +8,7 @@ Everything is in Python, with tests for each task.
 
 | Task | Folder | What it does |
 |---|---|---|
-| 1 | [`task1_mcp_server`](task1_mcp_server) | MCP server over stdio with a customer lookup tool and a refund tool |
+| 1 | [`task1_mcp_server`](task1_mcp_server) | MCP server over stdio with `get_customer_record` and `trigger_refund` tools |
 | 2 | [`task2_mcp_gateway`](task2_mcp_gateway) | Reverse proxy that blocks `admin_*` tool calls for non-admin users |
 | 3 | [`task3_stream_guardrail`](task3_stream_guardrail) | LLM gateway that redacts emails, SSNs and card numbers while streaming |
 | 4 | [`task4_router`](task4_router) | Per-tenant token rate limiter on SQLite, with failover to a backup provider |
@@ -47,8 +47,13 @@ Built with the official MCP Python SDK (`mcp`), using the low-level `Server` cla
 
 **Tools**
 
-* `lookup_customer(customer_id)`: `customer_id` must match `CUST-` plus 6 digits, for example `CUST-000001`.
-* `issue_refund(customer_id, amount, reason)`: `amount` must be greater than 0, at most 10,000, with at most 2 decimal places. `reason` must be 10 to 500 characters, not counting leading or trailing spaces.
+* `get_customer_record(customer_id)`: `customer_id` must be `CUST-XXXXX`, which I read as
+  `CUST-` plus exactly 5 digits (0-9), for example `CUST-00001`. The pattern is one
+  constant in `models.py` if a different format is wanted.
+* `trigger_refund(customer_id, amount, reason)`: `amount` must be a positive, finite number.
+  `reason` must be at least 10 characters, not counting leading or trailing spaces.
+
+Mock customers: `CUST-00001` and `CUST-00002`.
 
 **Run it**
 
@@ -67,7 +72,9 @@ To try it in an MCP client such as Claude Desktop or MCP Inspector, set the comm
   every stdout line is valid JSON-RPC and that the logs show up on stderr.
 * **Validation with Pydantic** in strict mode with `extra="forbid"`. That means no silent
   type changes (`"10"` is not accepted as `10`, `true` is not accepted as `1`) and unknown
-  fields are rejected. `inf`, `NaN` and amounts with more than 2 decimals are rejected too.
+  fields are rejected. `0`, negatives, `inf` and `NaN` are rejected for `amount`. Customer
+  IDs only accept ASCII digits, because `\d` would also accept digits from other scripts
+  such as `CUST-١٢٣٤٥`.
 * **Two kinds of errors:**
   * Bad input or an unknown tool is a **protocol error**: JSON-RPC `-32602 Invalid params`.
     The `data` field lists each bad field and why, without echoing the input back.
@@ -89,10 +96,10 @@ uvicorn task2_mcp_gateway.mock_mcp_server:app --port 9001
 # terminal 2: gateway
 uvicorn task2_mcp_gateway.gateway:app --port 9000
 # terminal 3: make tokens and call it
-python -m task2_mcp_gateway.tokens user
+python -m task2_mcp_gateway.tokens viewer
 python -m task2_mcp_gateway.tokens admin
 curl -s localhost:9000/mcp -H "Authorization: Bearer <token>" -H "content-type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"admin_delete_user","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"admin_reset_key","arguments":{}}}'
 ```
 
 Settings: `DOWNSTREAM_MCP_URL` (default `http://127.0.0.1:9001/mcp`) and
@@ -101,7 +108,9 @@ Settings: `DOWNSTREAM_MCP_URL` (default `http://127.0.0.1:9001/mcp`) and
 **Rules**
 
 1. The Bearer token is a signed JWT (HS256). The gateway checks the signature and expiry,
-   then reads the `role` claim. A missing or bad token gets HTTP 401.
+   then reads the `role` claim (for example `admin` or `viewer`). A missing or bad token
+   gets HTTP 401. I used a signed token because a plain role string in the header could
+   be set to `admin` by anyone.
 2. `tools/list` and all other methods are forwarded without changes.
 3. `tools/call` for a tool whose name starts with `admin_` needs `role == "admin"`.
    Anyone else gets `-32001 Unauthorized Tool Call` and **the downstream server is never

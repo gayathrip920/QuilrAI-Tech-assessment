@@ -56,6 +56,6 @@ if __name__ == "__main__":
     # Demo helper: python -m task2_mcp_gateway.tokens <role> [secret]
     import sys
 
-    role = sys.argv[1] if len(sys.argv) > 1 else "user"
+    role = sys.argv[1] if len(sys.argv) > 1 else "viewer"
     secret = sys.argv[2] if len(sys.argv) > 2 else "dev-secret-change-me"
     print(sign({"sub": f"demo-{role}", "role": role, "exp": int(time.time()) + 3600}, secret))

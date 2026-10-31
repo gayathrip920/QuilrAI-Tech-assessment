@@ -41,7 +41,7 @@ def auth(role):
 # ---------- tools/list passthrough ----------
 
 async def test_tools_list_forwarded_unchanged(gw, mock):
-    r = await gw.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/list"}, headers=auth("user"))
+    r = await gw.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/list"}, headers=auth("viewer"))
     assert r.status_code == 200
     assert r.json() == {"jsonrpc": "2.0", "id": 7, "result": {"tools": TOOLS}}
     assert r.headers["mcp-session-id"] == "mock-session-1"
@@ -50,7 +50,7 @@ async def test_tools_list_forwarded_unchanged(gw, mock):
 
 # ---------- authorization ----------
 
-@pytest.mark.parametrize("role", ["user", "viewer", "Admin", "ADMIN", "admin ", ""])
+@pytest.mark.parametrize("role", ["viewer", "user", "Admin", "ADMIN", "admin ", ""])
 async def test_non_admin_blocked_from_admin_tools_and_downstream_not_called(gw, mock, role):
     r = await gw.post("/mcp", json=call("admin_delete_user", 42), headers=auth(role))
     body = r.json()
@@ -59,21 +59,21 @@ async def test_non_admin_blocked_from_admin_tools_and_downstream_not_called(gw, 
     assert mock.state.received == []  # never reached the server
 
 
-@pytest.mark.parametrize("name", ["ADMIN_delete_user", "Admin_rotate_keys", " admin_delete_user", "ａdmin_delete_user"])
+@pytest.mark.parametrize("name", ["ADMIN_delete_user", "Admin_reset_key", " admin_delete_user", "ａdmin_delete_user"])
 async def test_prefix_tricks_are_blocked(gw, mock, name):
-    r = await gw.post("/mcp", json=call(name), headers=auth("user"))
+    r = await gw.post("/mcp", json=call(name), headers=auth("viewer"))
     assert r.json()["error"]["code"] == -32001
     assert mock.state.received == []
 
 
 async def test_admin_can_call_admin_tools(gw, mock):
-    r = await gw.post("/mcp", json=call("admin_rotate_keys"), headers=auth("admin"))
+    r = await gw.post("/mcp", json=call("admin_reset_key"), headers=auth("admin"))
     assert r.status_code == 200
-    assert r.json()["result"]["content"][0]["text"] == "ran admin_rotate_keys"
+    assert r.json()["result"]["content"][0]["text"] == "ran admin_reset_key"
     assert len(mock.state.received) == 1
 
 
-@pytest.mark.parametrize("role", ["user", "admin"])
+@pytest.mark.parametrize("role", ["viewer", "admin"])
 async def test_normal_tools_allowed_for_everyone(gw, mock, role):
     r = await gw.post("/mcp", json=call("get_weather"), headers=auth(role))
     assert r.json()["result"]["content"][0]["text"] == "ran get_weather"
@@ -115,14 +115,14 @@ async def test_forged_role_in_unsigned_token_rejected(gw, mock):
 
 
 async def test_authorization_header_not_forwarded(gw, mock):
-    await gw.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=auth("user"))
+    await gw.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=auth("viewer"))
     assert "authorization" not in mock.state.headers[0]
 
 
 # ---------- JSON-RPC parsing ----------
 
 async def test_parse_error(gw, mock):
-    r = await gw.post("/mcp", content=b"{not json", headers=auth("user"))
+    r = await gw.post("/mcp", content=b"{not json", headers=auth("viewer"))
     assert r.json() == {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
     assert mock.state.received == []
 
@@ -139,14 +139,14 @@ async def test_parse_error(gw, mock):
     ],
 )
 async def test_invalid_request(gw, mock, body):
-    r = await gw.post("/mcp", content=body, headers=auth("user"))
+    r = await gw.post("/mcp", content=body, headers=auth("viewer"))
     assert r.json()["error"]["code"] == -32600
     assert mock.state.received == []
 
 
 async def test_batch_rejected_so_admin_call_cannot_hide_inside(gw, mock):
     batch = [call("get_weather", 1), call("admin_delete_user", 2)]
-    r = await gw.post("/mcp", json=batch, headers=auth("user"))
+    r = await gw.post("/mcp", json=batch, headers=auth("viewer"))
     assert r.json()["error"]["code"] == -32600
     assert mock.state.received == []
 
@@ -154,13 +154,13 @@ async def test_batch_rejected_so_admin_call_cannot_hide_inside(gw, mock):
 async def test_duplicate_name_key_smuggling_blocked(gw, mock):
     # Some parsers keep the first key and some keep the last. Reject both.
     body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_weather","name":"admin_delete_user"}}'
-    r = await gw.post("/mcp", content=body, headers=auth("user"))
+    r = await gw.post("/mcp", content=body, headers=auth("viewer"))
     assert r.json()["error"]["code"] == -32600
     assert mock.state.received == []
 
 
 async def test_notification_forwarded(gw, mock):
-    r = await gw.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=auth("user"))
+    r = await gw.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=auth("viewer"))
     assert r.status_code == 202
     assert mock.state.received[0]["method"] == "notifications/initialized"
 
@@ -173,7 +173,7 @@ async def test_downstream_down_gives_clean_error():
 
     app = create_app(downstream_url="http://mock/mcp", secret=SECRET, transport=httpx.MockTransport(boom))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
-        r = await c.post("/mcp", json=call("get_weather", 9), headers=auth("user"))
+        r = await c.post("/mcp", json=call("get_weather", 9), headers=auth("viewer"))
     assert r.status_code == 502
     assert r.json() == {"jsonrpc": "2.0", "id": 9, "error": {"code": -32603, "message": "Downstream MCP server unavailable"}}
     assert "10.0.0.5" not in r.text
