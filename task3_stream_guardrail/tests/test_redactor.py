@@ -110,3 +110,35 @@ def test_email_inside_long_blob_still_redacted():
     blob = "x" * 1000 + " " + "secret.person@example.com" + " " + "y" * 1000
     assert stream(list(blob)) == redact(blob)
     assert "secret.person" not in stream(list(blob))
+
+
+# ---------- performance ----------
+
+def _time_stream(text, chunk=8):
+    import time
+
+    r = StreamRedactor()
+    t = time.perf_counter()
+    out = "".join(r.feed(text[i:i + chunk]) for i in range(0, len(text), chunk)) + r.flush()
+    return time.perf_counter() - t, out
+
+
+PARA = "The fox emailed jane.doe@example.com about card 4111 1111 1111 1111 and SSN 123-45-6789. "
+
+
+def test_throughput_is_far_above_llm_speed():
+    # LLMs stream a few KB per second. 1 MB in 8-character chunks must take well under 10 s
+    # (it takes about 0.4 s on a laptop).
+    text = PARA * (1_000_000 // len(PARA))
+    elapsed, out = _time_stream(text)
+    assert elapsed < 10, elapsed
+    assert out.count(R) == 3 * (1_000_000 // len(PARA))
+
+
+def test_cost_grows_linearly_not_quadratically():
+    small = PARA * 2_000
+    big = PARA * 8_000
+    t_small, _ = _time_stream(small)
+    t_big, _ = _time_stream(big)
+    # 4x the input should cost about 4x the time. Quadratic would be about 16x.
+    assert t_big / t_small < 8, (t_small, t_big)

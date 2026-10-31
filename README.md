@@ -33,11 +33,32 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Run all tests (129 tests, about 15 seconds):
+Run all tests (about 160 tests, about 20 seconds):
 
 ```bash
 python -m pytest -q
 ```
+
+---
+
+## How this maps to the evaluation criteria
+
+Each "What to Score" item from the assessment, and where to find the code and the tests for it.
+
+| Task | Criterion | Where it is handled | Tests |
+|---|---|---|---|
+| 1 | STDIO isolation | Logging goes to stderr ([server.py](task1_mcp_server/server.py)). The SDK also moves `sys.stdout` off the protocol stream | [test_stdio_e2e.py](task1_mcp_server/tests/test_stdio_e2e.py) checks every stdout line of the real process is JSON-RPC. [test_protocol.py](task1_mcp_server/tests/test_protocol.py) scans the source for any `print()` or `sys.stdout` use |
+| 1 | Protocol compliance | `-32602` for bad params and unknown tools, `-32601` for unknown methods, `-32700` / `-32600` with `id: null` for bad lines (the SDK drops these silently, so `reply_to_bad_messages` adds the reply), `isError: true` for business failures | [test_protocol.py](task1_mcp_server/tests/test_protocol.py), [test_stdio_e2e.py](task1_mcp_server/tests/test_stdio_e2e.py) |
+| 1 | Validation and edge cases | Strict Pydantic models with `extra="forbid"` ([models.py](task1_mcp_server/models.py)) | [test_validation.py](task1_mcp_server/tests/test_validation.py): wrong lengths, lowercase, spaces, newlines, Unicode digits, wrong types, booleans, `inf`/`NaN`, zero, negatives, whitespace-only reasons, extra fields |
+| 2 | JSON-RPC wire parsing | Strict parse: duplicate keys, batches, missing `jsonrpc`/`method`, bad `params.name` ([gateway.py](task2_mcp_gateway/gateway.py)) | [test_gateway.py](task2_mcp_gateway/tests/test_gateway.py) parsing section |
+| 2 | Proxy forwarding | JSON and SSE responses passed through, session header kept, `Authorization` not forwarded | [test_gateway.py](task2_mcp_gateway/tests/test_gateway.py): `tools/list` unchanged, SSE passthrough, notifications, downstream down |
+| 2 | Method-level authorization | `admin_` check with Unicode normalization, signed role claim | [test_gateway.py](task2_mcp_gateway/tests/test_gateway.py): every deny test also checks the downstream server got **zero** requests |
+| 3 | Async chunking and buffer state | Chunk-safe SSE parser and a hold-back buffer of one partial word ([gateway.py](task3_stream_guardrail/gateway.py), [redactor.py](task3_stream_guardrail/redactor.py)) | [test_redactor.py](task3_stream_guardrail/tests/test_redactor.py): every 2-way split, char-by-char, 500 random chunkings |
+| 3 | Fast matching on partial text | Regex runs only over the small buffer, so total cost is linear in the text length | [test_redactor.py](task3_stream_guardrail/tests/test_redactor.py): 1 MB in 8-char chunks (about 0.4 s on a laptop) and a linear-growth check |
+| 3 | Memory and latency | Hold-back capped at 254 chars; nothing waits for the full answer | 1 MB unbroken input stays bounded; live-socket test shows first token under 0.5 s while the stream takes about 2 s |
+| 4 | Async concurrency and timeout races | `BEGIN IMMEDIATE` + `asyncio.Lock` ([limiter.py](task4_router/limiter.py)); one total `asyncio.wait_for` deadline that cancels the slow call ([router.py](task4_router/router.py)) | [test_limiter.py](task4_router/tests/test_limiter.py): 200 parallel requests, two connections on one file. [test_gateway.py](task4_router/tests/test_gateway.py): timeout at 3 s, cancelled calls, 30 parallel requests through the API |
+| 4 | Eviction and token tracking | Expired rows deleted in the same transaction; estimate replaced by real usage; released on failure | [test_limiter.py](task4_router/tests/test_limiter.py): sliding window, eviction, reconcile, restart |
+| 4 | Fallback and error sanitizing | Failover on 429 / timeout / 5xx / network error; one error shape; catch-all 500 handler ([app.py](task4_router/app.py)) | [test_gateway.py](task4_router/tests/test_gateway.py): each failover case, both providers down, backup timeout, a crash with a fake password that must not leak |
 
 ---
 
@@ -75,6 +96,10 @@ To try it in an MCP client such as Claude Desktop or MCP Inspector, set the comm
   fields are rejected. `0`, negatives, `inf` and `NaN` are rejected for `amount`. Customer
   IDs only accept ASCII digits, because `\d` would also accept digits from other scripts
   such as `CUST-١٢٣٤٥`.
+* **Bad lines get a reply.** A line that is not JSON gets `-32700 Parse error`, and JSON
+  that is not a JSON-RPC message gets `-32600 Invalid Request`, both with `id: null` as the
+  JSON-RPC spec requires. The SDK drops these lines without answering, so a small filter
+  (`reply_to_bad_messages`) sits between stdin and the server to send the reply.
 * **Two kinds of errors:**
   * Bad input or an unknown tool is a **protocol error**: JSON-RPC `-32602 Invalid params`.
     The `data` field lists each bad field and why, without echoing the input back.

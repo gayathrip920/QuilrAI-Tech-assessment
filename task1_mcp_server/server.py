@@ -5,6 +5,10 @@ Rules this file follows:
   * Bad input -> JSON-RPC error -32602 (Invalid params), raised as MCPError,
     so the client gets a protocol-level error, not a "successful" result.
   * Unknown tool -> -32602 as well (MCP spec convention).
+  * A line on stdin that is not valid JSON -> -32700 Parse error, and valid
+    JSON that is not a JSON-RPC message -> -32600 Invalid Request, both with
+    id null as JSON-RPC 2.0 requires. The SDK drops these lines silently, so
+    reply_to_bad_messages() below adds the reply.
   * A valid request that fails for business reasons (customer not found)
     -> a normal CallToolResult with isError=true, so the LLM can read it.
 """
@@ -14,10 +18,12 @@ import logging
 import sys
 import uuid
 
+import anyio
 import mcp_types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from pydantic import ValidationError
 
 from .models import GetCustomerRecordInput, TriggerRefundInput
@@ -30,6 +36,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("task1.mcp_server")
 
+PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
 INVALID_PARAMS = -32602
 
 # In-memory mock data.
@@ -115,10 +123,32 @@ server = Server(
 )
 
 
+def _error_for_bad_line(exc: Exception) -> types.JSONRPCError:
+    is_bad_json = isinstance(exc, ValidationError) and any(e["type"] == "json_invalid" for e in exc.errors())
+    code, message = (PARSE_ERROR, "Parse error") if is_bad_json else (INVALID_REQUEST, "Invalid Request")
+    return types.JSONRPCError(jsonrpc="2.0", id=None, error=types.ErrorData(code=code, message=message))
+
+
+async def reply_to_bad_messages(source, forward, write_stream) -> None:
+    """Pass good messages to the server. Answer bad lines with a JSON-RPC error."""
+    async with forward:
+        async for item in source:
+            if isinstance(item, Exception):
+                err = _error_for_bad_line(item)
+                log.warning("bad message on stdin, replied %s", err.error.code)
+                await write_stream.send(SessionMessage(err))
+                continue
+            await forward.send(item)
+
+
 async def main() -> None:
     log.info("starting MCP server on stdio")
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        forward, server_read = anyio.create_memory_object_stream(0)
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(reply_to_bad_messages, read_stream, forward, write_stream)
+            await server.run(server_read, write_stream, server.create_initialization_options())
+            tg.cancel_scope.cancel()
 
 
 if __name__ == "__main__":
